@@ -5,6 +5,7 @@
 #include <QMainWindow>
 #include <QtSerialPort/QSerialPort>
 #include <QFile>
+#include "SerialPort.h"
 QT_USE_NAMESPACE
 namespace Ui {
 class MainWindow;
@@ -44,7 +45,8 @@ private:
     void fillPortPara();
     void setEnableAll(bool status);
 
-    QSerialPort *serial;
+  //  QSerialPort *serial;
+    SerialPort *serial;
     Ui::MainWindow *ui;
 };
 

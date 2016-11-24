@@ -15,7 +15,7 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    serial = new QSerialPort(this);
+    serial = new SerialPort();
     fillPortPara();
     ui->sendButton->setText(tr("Open"));
     setEnableAll(true);
@@ -24,7 +24,6 @@ MainWindow::MainWindow(QWidget *parent) :
 MainWindow::~MainWindow()
 {
     if(serial != NULL){
-        if(serial->isOpen())
             serial->close();
         delete serial;
     }
@@ -41,10 +40,11 @@ void MainWindow::fillPortPara()
  //   ui->portNameBox->addItem(QStringLiteral("Custom"));
 
     ui->baudRateBox->addItem(QStringLiteral("9600"),QSerialPort::Baud9600);
+    ui->baudRateBox->addItem(QStringLiteral("57600"),QSerialPort::Baud57600);
     ui->baudRateBox->addItem(QStringLiteral("115200"),QSerialPort::Baud115200);
     ui->baudRateBox->addItem(QStringLiteral("921600"),921600);
-    ui->baudRateBox->addItem(tr("Custom"));\
-    ui->baudRateBox->setCurrentIndex(1);
+    ui->baudRateBox->addItem(tr("Custom"));
+    ui->baudRateBox->setCurrentIndex(2);
 
     ui->dataBitBox->addItem(QStringLiteral("7"),QSerialPort::Data7);
     ui->dataBitBox->addItem(QStringLiteral("8"),QSerialPort::Data8);
@@ -87,40 +87,38 @@ void MainWindow::on_actionConnect_triggered()
 
 void MainWindow::on_actionDisconnect_triggered()
 {
-    if(serial->isOpen())
+
         serial->close();
-    ui->statusBar->showMessage(serial->portName()+tr(" Disconnected"));
+    ui->statusBar->showMessage(serial->getSerial()->portName() + tr(" Disconnected"));
     setEnableAll(true);
     ui->sendButton->setText(tr("Open"));
 
 }
 void MainWindow::openSerialPort()
 {
-    serial->setPortName(ui->portNameBox->currentText());
-    if(ui->baudRateBox->currentIndex()>1){
-        serial->setBaudRate(ui->baudRateBox->currentText().toInt());
-    }
-    else{
-        QSerialPort::BaudRate baudrate = static_cast<QSerialPort::BaudRate>(
-                    ui->baudRateBox->itemData(ui->baudRateBox->currentIndex()).toInt());
-        serial->setBaudRate(baudrate);
-    }
-    serial->setDataBits(static_cast<QSerialPort::DataBits>(ui->dataBitBox->itemData(ui->dataBitBox->currentIndex()).toInt()));
-    serial->setParity(static_cast<QSerialPort::Parity>(ui->parityBox->itemData(ui->parityBox->currentIndex()).toInt()));
-    serial->setStopBits(static_cast<QSerialPort::StopBits>(ui->stopBitBox->itemData(ui->stopBitBox->currentIndex()).toInt()));
-    serial->setFlowControl(static_cast<QSerialPort::FlowControl>(ui->flowcontrlBox->itemData(ui->flowcontrlBox->currentIndex()).toInt()));
+    SerialPort::SerialParam param;
 
-    if(serial->open(QIODevice::ReadWrite)){
+    param.portname = ui->portNameBox->currentText();
+
+    param.baudrate = ui->baudRateBox->currentText().toInt();
+
+    param.databits = static_cast<QSerialPort::DataBits>(ui->dataBitBox->itemData(ui->dataBitBox->currentIndex()).toInt());
+    param.parity = static_cast<QSerialPort::Parity>(ui->parityBox->itemData(ui->parityBox->currentIndex()).toInt());
+    param.stopbits = static_cast<QSerialPort::StopBits>(ui->stopBitBox->itemData(ui->stopBitBox->currentIndex()).toInt());
+    param.flowcontrol = static_cast<QSerialPort::FlowControl>(ui->flowcontrlBox->itemData(ui->flowcontrlBox->currentIndex()).toInt());
+
+    serial->setSerialParameter(param);
+    if(serial->open()){
         //open succeed
-        connect(serial,&QSerialPort::readyRead,this,&MainWindow::readData);
+        connect(serial->getSerial(),&QSerialPort::readyRead,this,&MainWindow::readData);
         setEnableAll(false);
         ui->sendButton->setText(tr("Send"));
         ui->actionConnect->setEnabled(false);
         //   QMessageBox::information(this,tr("Open successfully"),tr("Connected"));
-        ui->statusBar->showMessage(serial->portName()+tr(" Connected"));
+        ui->statusBar->showMessage(param.portname+tr(" Connected"));
     }
     else{
-        QMessageBox::critical(this,tr("ERROR"),serial->errorString());
+        QMessageBox::critical(this,tr("ERROR"),serial->getSerial()->errorString());
 
 
         ui->statusBar->showMessage(tr("Open Error"));
@@ -129,25 +127,25 @@ void MainWindow::openSerialPort()
 void MainWindow::readData()
 {
     //ui->statusBar->showMessage(tr("Recieved data from ")+serial->portName());
-    QByteArray   rxData = serial->readAll();
+    QByteArray   rxData = QByteArray(serial->readAll());
     QString rxbuf;
     if(!rxData.isEmpty()){
         if(ui->rxAsciiChecked->isChecked())
             rxbuf = rxData;
         else if(ui->rxHexChecked->isChecked()){
-//            for(int i = 0; i < rxData.size(); i++){
+            for(int i = 0; i < rxData.size(); i++){
 //                QString s;
 //                s.sprintf("%02X ",(unsigned char)rxData.at(i));
 //                rxbuf += s;
 //            }
-            foreach (char c, rxData) {
                 QString s;
-                s.sprintf("%02X ",c);
+                s.sprintf("%02X ",(unsigned char)rxData.at(i));
                 rxbuf += s;
             }
 
         }
-        ui->textBrowser->setText(ui->textBrowser->document()->toPlainText()+rxbuf);
+        //ui->textBrowser->setText(ui->textBrowser->document()->toPlainText()+rxbuf);
+        ui->textBrowser->append(rxbuf);
         QTextCursor cursor = ui->textBrowser->textCursor();
         cursor.movePosition(QTextCursor::End);
         ui->textBrowser->setTextCursor(cursor);
@@ -180,11 +178,13 @@ void MainWindow::writeData()
             txbuf.append(data);
         }
     }
-    else {
+    else
+    {
         txbuf = ui->dataToSendEdit->toPlainText().toLocal8Bit();
     }
 
-    serial->write(txbuf);
+    //serial->write(txbuf);
+       serial->write(txbuf.constData(),txbuf.size());
 
     if(ui->echoSendCheckBox->isChecked()){
         ui->textBrowser->setText(ui->textBrowser->document()->toPlainText()+ui->dataToSendEdit->toPlainText());
@@ -198,7 +198,7 @@ void MainWindow::writeData()
 
 void MainWindow::on_sendButton_clicked()
 {
-    if(serial->isOpen())
+    if(serial->isConnected())
         writeData();
     else
         openSerialPort();
@@ -219,7 +219,8 @@ void MainWindow::on_baudRateBox_currentIndexChanged(int index)
 
 void MainWindow::on_actionSave_triggered()
 {
-    if(ui->textBrowser->toPlainText().isEmpty()){
+    if(ui->textBrowser->toPlainText().isEmpty())
+    {
         QMessageBox::information(this,tr("No data"),tr("No data to save!"),QMessageBox::Ok);
         return;
     }
@@ -246,5 +247,5 @@ void MainWindow::on_actionQuit_triggered()
 void MainWindow::on_actionAbout_triggered()
 {
     QMessageBox::about(this,tr("About author"),tr("Released on github by <b>wind</b> "
-                                                  "<a href=\"https://github.com/windeh/serial\">https://github.com/windeh/serial</a>"));
+                                                  "<a href=\"https://github.com/wlhe/serial\">https://github.com/wlhe/serial</a>"));
 }
